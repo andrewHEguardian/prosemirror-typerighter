@@ -1,6 +1,5 @@
 import { AllSelection, EditorState, TextSelection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
-
 import {
   createDoc,
   p,
@@ -31,9 +30,7 @@ const matchWithReplacement: Match = {
 const endpoint = "http://typerighter-service-endpoint.rad";
 const adapter = new TyperighterAdapter(endpoint);
 
-const createPlugin = (
-  opts?: IPluginOptions
-) => {
+const createPlugin = (opts?: IPluginOptions) => {
   const { plugin, store } = createTyperighterPlugin({
     matches,
     adapter,
@@ -63,104 +60,159 @@ describe("createTyperighterPlugin", () => {
     expect(getState(view.state)!.currentMatches).toEqual(matches);
   });
   it("should allow us to specify real time checking when creating the plugin", () => {
-    const { getState, view } = createPlugin({adapter, requestMatchesOnDocModified: true });
-    expect(getState(view.state)!.config.requestMatchesOnDocModified).toEqual(true);
-  });
-  it("should not update the store state if the plugin state has not changed for a no-op transaction", () => {
-    const spy = jest.fn();
-    const { view, store } = createPlugin({
+    const { getState, view } = createPlugin({
       adapter,
       requestMatchesOnDocModified: true
     });
-    store.on("STORE_EVENT_NEW_STATE", spy);
-
-    // Dispatch an action that will ensure the view is updated.
-    view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));
-
-    expect(spy.mock.calls.length).toBe(0);
+    expect(getState(view.state)!.config.requestMatchesOnDocModified).toEqual(
+      true
+    );
   });
 
-  it("should not update the store state if the plugin state has not changed for a transaction that modifies the document", () => {
-    const spy = jest.fn();
-    const { view, store } = createPlugin({
-      adapter,
-      matches: emptyArray as Match<ISuggestion>[],
+  describe("store updates", () => {
+    it("should not update the store state if the plugin state has not changed for a no-op transaction", () => {
+      const spy = jest.fn();
+      const { view, store } = createPlugin({
+        adapter,
+        requestMatchesOnDocModified: true
+      });
+      store.on("STORE_EVENT_NEW_STATE", spy);
+
+      // Dispatch an action that will ensure the view is updated.
+      view.dispatch(
+        view.state.tr.setSelection(new AllSelection(view.state.doc))
+      );
+
+      expect(spy.mock.calls.length).toBe(0);
     });
-    store.on("STORE_EVENT_NEW_STATE", spy);
 
-    const modifyDoc = () => {
+    const modifyDoc = (view: EditorView) => {
       const selection = TextSelection.near(view.state.doc.resolve(0));
-      view.dispatch(view.state.tr.insertText("a change", selection.from, selection.to));
-    }
+      view.dispatch(
+        view.state.tr.insertText("a change", selection.from, selection.to)
+      );
+    };
 
+    it("should not update the store state if the plugin state has not changed for a transaction that modifies the document", () => {
+      const spy = jest.fn();
+      const { view, store } = createPlugin({
+        adapter,
+        matches: emptyArray as Match<ISuggestion>[]
+      });
+      store.on("STORE_EVENT_NEW_STATE", spy);
 
-    // Dispatch an initial action to modify the document, which will flip
-    // `docChangedSinceCheck`, resulting in a single call to our spy.
-    modifyDoc();
-    expect(spy.mock.calls.length).toBe(1);
+      // Dispatch an initial action to modify the document, which will flip
+      // `docChangedSinceCheck`, resulting in a single call to our spy.
+      modifyDoc(view);
+      expect(spy.mock.calls.length).toBe(1);
 
-    // Subsequent changes to the document should not emit updates.
-    modifyDoc();
-    expect(spy.mock.calls.length).toBe(1);
+      // Subsequent changes to the document should not emit updates.
+      modifyDoc(view);
+      expect(spy.mock.calls.length).toBe(1);
+    });
+
+    it("should not update the store state if the plugin state has not changed for a transaction that modifies the document, and matches are filtered", () => {
+      const spy = jest.fn();
+      const { view, store } = createPlugin({
+        adapter,
+        matches: emptyArray as Match<ISuggestion>[],
+        filterOptions: {
+          filterMatches: filterByMatchState,
+          initialFilterState: []
+        }
+      });
+      store.on("STORE_EVENT_NEW_STATE", spy);
+
+      // Dispatch an initial action to modify the document, which will flip
+      // `docChangedSinceCheck`, resulting in a single call to our spy.
+      modifyDoc(view);
+      expect(spy.mock.calls.length).toBe(1);
+
+      // Subsequent changes to the document should not emit updates.
+      modifyDoc(view);
+      expect(spy.mock.calls.length).toBe(1);
+    });
   });
 
   describe("Match persistence/removal", () => {
     it("should add matches to the document by default", () => {
       const { editorElement } = createEditor("123456", [createMatch(2, 4)]);
-      const maybeMatchElement = editorElement.querySelector("span[data-match-id]")!;
-      expect(maybeMatchElement).toBeTruthy()
+      const maybeMatchElement = editorElement.querySelector(
+        "span[data-match-id]"
+      )!;
+      expect(maybeMatchElement).toBeTruthy();
     });
     it("should remove matches when the user makes an edit that overlaps them", () => {
-      const { editorElement, view } = createEditor("123456", [createMatch(2, 4)]);
+      const { editorElement, view } = createEditor("123456", [
+        createMatch(2, 4)
+      ]);
 
-      const tr = view.state.tr
-      tr.delete(3, 5)
+      const tr = view.state.tr;
+      tr.delete(3, 5);
       view.dispatch(tr);
 
-      const maybeMatchElement = editorElement.querySelector("span[data-match-id]")!;
-      expect(maybeMatchElement).toBe(null)
+      const maybeMatchElement = editorElement.querySelector(
+        "span[data-match-id]"
+      )!;
+      expect(maybeMatchElement).toBe(null);
     });
     it("should remove matches when the user makes an insert that abuts them – rhs", () => {
-      const { editorElement, view } = createEditor("123456", [createMatch(2, 4)]);
+      const { editorElement, view } = createEditor("123456", [
+        createMatch(2, 4)
+      ]);
 
-      const tr = view.state.tr
+      const tr = view.state.tr;
       tr.insertText("A", 4);
       view.dispatch(tr);
 
-      const maybeMatchElement = editorElement.querySelector("span[data-match-id]")!;
-      expect(maybeMatchElement).toBe(null)
+      const maybeMatchElement = editorElement.querySelector(
+        "span[data-match-id]"
+      )!;
+      expect(maybeMatchElement).toBe(null);
     });
     it("should remove matches when the user makes an insert that abuts them - lhs", () => {
-      const { editorElement, view } = createEditor("123456", [createMatch(2, 4)]);
+      const { editorElement, view } = createEditor("123456", [
+        createMatch(2, 4)
+      ]);
 
-      const tr = view.state.tr
+      const tr = view.state.tr;
       tr.insertText("A", 2);
       view.dispatch(tr);
 
-      const maybeMatchElement = editorElement.querySelector("span[data-match-id]")!;
+      const maybeMatchElement = editorElement.querySelector(
+        "span[data-match-id]"
+      )!;
       expect(maybeMatchElement).toBe(null);
     });
     it("should not remove matches when the user makes an edit that doesn't overlap or abut them", () => {
-      const { editorElement, view } = createEditor("123456", [createMatch(2, 4)]);
+      const { editorElement, view } = createEditor("123456", [
+        createMatch(2, 4)
+      ]);
 
-      const tr = view.state.tr
+      const tr = view.state.tr;
       tr.insertText("A", 5);
       view.dispatch(tr);
 
-      const maybeMatchElement = editorElement.querySelector("span[data-match-id]")!;
-      expect(maybeMatchElement).toBeTruthy()
+      const maybeMatchElement = editorElement.querySelector(
+        "span[data-match-id]"
+      )!;
+      expect(maybeMatchElement).toBeTruthy();
     });
     it("should not remove matches when the user makes a deletion to the left hand side of the match that doesn't cover its range", () => {
       // @todo – this fails at the moment, as our change detection overestimates
       // the range affected by delete operations.
-      const { editorElement, view } = createEditor("123456", [createMatch(3, 5)]);
+      const { editorElement, view } = createEditor("123456", [
+        createMatch(3, 5)
+      ]);
 
-      const tr = view.state.tr
+      const tr = view.state.tr;
       tr.delete(1, 2);
       view.dispatch(tr);
 
-      const maybeMatchElement = editorElement.querySelector("span[data-match-id]")!;
-      expect(maybeMatchElement).toBeTruthy()
+      const maybeMatchElement = editorElement.querySelector(
+        "span[data-match-id]"
+      )!;
+      expect(maybeMatchElement).toBeTruthy();
     });
   });
   it("should trigger onMatches when matches are found in the document", () => {
